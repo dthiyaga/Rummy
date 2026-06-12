@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rummy Master Strategy Trainer</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --accent: #38bdf8;
+            --success: #22c55e;
+            --danger: #ef4444;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        h1 { margin: 0; color: var(--accent); }
+        p { color: #94a3b8; margin: 5px 0; }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        }
+
+        .hand-container {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 30px 0;
+            min-height: 120px;
+        }
+
+        .card {
+            background: white;
+            color: black;
+            width: 50px;
+            height: 80px;
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 8px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            cursor: pointer;
+            user-select: none;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2);
+        }
+
+        .card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 10px 15px -3px rgba(56, 189, 248, 0.5);
+        }
+
+        .card.selected {
+            border: 3px solid var(--accent);
+            transform: translateY(-15px);
+        }
+
+        .suit-H, .suit-D { color: var(--danger); }
+        .suit-S, .suit-C { color: #000; }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        button {
+            background-color: var(--accent);
+            color: var(--bg-color);
+            border: none;
+            padding: 10px 20px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: opacity 0.2s;
+        }
+
+        button:hover { opacity: 0.9; }
+        button.secondary { background-color: #64748b; color: white; }
+
+        .feedback-box {
+            background: rgba(15, 23, 42, 0.6);
+            border-left: 4px solid var(--accent);
+            padding: 15px;
+            border-radius: 4px;
+            min-height: 50px;
+            margin-top: 20px;
+        }
+
+        .score-board {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 20px;
+            border-top: 1px solid #334155;
+            padding-top: 15px;
+            font-size: 0.9rem;
+            color: #94a3b8;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Rummy Pro Discard Trainer</h1>
+        <p>Analyze your 13-card hand. Pick the card you should discard first to build a pure sequence safely.</p>
+    </header>
+
+    <div class="container">
+        <div class="hand-container" id="hand">
+            </div>
+
+        <div class="controls">
+            <button id="btn-submit" onclick="checkAnswer()">Confirm Discard</button>
+            <button id="btn-hint" class="secondary" onclick="getAIAdvice()">Ask AI Strategy Advisor</button>
+            <button id="btn-next" class="secondary" onclick="generateNewHand()">Next Hand</button>
+        </div>
+
+        <div class="feedback-box" id="feedback">
+            Select a card from your hand to begin analysis.
+        </div>
+
+        <div class="score-board">
+            <div>Hands Evaluated: <span id="stat-total" style="color: white; font-weight: bold;">0</span></div>
+            <div>Optimal Discards: <span id="stat-correct" style="color: var(--success); font-weight: bold;">0</span></div>
+        </div>
+    </div>
+
+    <script>
+        const suits = ['H', 'D', 'C', 'S']; // Hearts, Diamonds, Clubs, Spades
+        const suitSymbols = { 'H': '♥', 'D': '♦', 'C': '♣', 'S': '♠' };
+        const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+        const valueScores = { '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9, '10':10, 'J':10, 'Q':10, 'K':10, 'A':10 };
+        const valueOrder = { 'A':1, '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9, '10':10, 'J':11, 'Q':12, 'K':13 };
+
+        let currentHand = [];
+        let selectedIndex = null;
+        let totalHands = 0;
+        let correctAnswers = 0;
+
+        function generateNewHand() {
+            // Build and shuffle deck
+            let deck = [];
+            for (let s of suits) {
+                for (let v of values) {
+                    deck.push({ suit: s, value: v });
+                }
+            }
+            deck.sort(() => Math.random() - 0.5);
+
+            // Deal 13 cards and sort them by suit then value
+            currentHand = deck.slice(0, 13);
+            currentHand.sort((a, b) => {
+                if (a.suit !== b.suit) return a.suit.localeCompare(b.suit);
+                return valueOrder[a.value] - valueOrder[b.value];
+            });
+
+            selectedIndex = null;
+            document.getElementById('feedback').innerHTML = "New hand dealt. Analyze your suit distribution and high-value dead weight.";
+            renderHand();
+        }
+
+        function renderHand() {
+            const handDiv = document.getElementById('hand');
+            handDiv.innerHTML = '';
+            
+            currentHand.forEach((card, index) => {
+                const cardEl = document.createElement('div');
+                cardEl.className = `card suit-${card.suit} ${selectedIndex === index ? 'selected' : ''}`;
+                cardEl.onclick = () => selectCard(index);
+                
+                cardEl.innerHTML = `
+                    <div>${card.value}</div>
+                    <div style="font-size: 1.8rem; align-self: center;">${suitSymbols[card.suit]}</div>
+                    <div style="transform: rotate(180deg);">${card.value}</div>
+                `;
+                handDiv.appendChild(cardEl);
+            });
+        }
+
+        function selectCard(index) {
+            selectedIndex = index;
+            renderHand();
+            document.getElementById('feedback').innerHTML = `You have targeted the <strong>${currentHand[index].value}${suitSymbols[currentHand[index].suit]}</strong> for discard. Click "Confirm Discard" to evaluate your choice.`;
+        }
+
+        function evaluateHandStrategy() {
+            // AI Logic Matrix:
+            // 1. Find "Dead weight" high point cards (A, K, Q, J) that have no neighboring cards in the same suit.
+            // 2. Prioritize keeping cards that are already part of a meld or run.
+            // 3. Find completely isolated cards.
+            
+            let cardMetrics = currentHand.map((card, idx) => {
+                let weight = valueScores[card.value];
+                let connections = 0;
+                let currentValOrder = valueOrder[card.value];
+
+                currentHand.forEach((otherCard, oIdx) => {
+                    if (idx === oIdx) return;
+                    if (card.suit === otherCard.suit) {
+                        let otherValOrder = valueOrder[otherCard.value];
+                        let diff = Math.abs(currentValOrder - otherValOrder);
+                        if (diff === 1) connections += 2; // Direct neighbor (e.g., 7 and 8)
+                        if (diff === 2) connections += 1; // Gap neighbor (e.g., 7 and 9)
+                    }
+                });
+
+                // Danger score formula: High card value + low connection rating = prime target for discard
+                let discardDesirability = weight - (connections * 3);
+                return { index: idx, card: card, score: discardDesirability };
+            });
+
+            // Sort to find the highest discard score
+            cardMetrics.sort((a, b) => b.score - a.score);
+            return cardMetrics;
+        }
+
+        function checkAnswer() {
+            if (selectedIndex === null) {
+                alert("Please select a card to discard first!");
+                return;
+            }
+
+            totalHands++;
+            let metrics = evaluateHandStrategy();
+            let bestChoiceIdx = metrics[0].index;
+            let bestCard = currentHand[bestChoiceIdx];
+            let userCard = currentHand[selectedIndex];
+
+            let feedbackEl = document.getElementById('feedback');
+
+            if (selectedIndex === bestChoiceIdx || valueScores[userCard.value] === valueScores[bestCard.value] && metrics[selectedIndex].score >= metrics[bestChoiceIdx].score - 2) {
+                correctAnswers++;
+                feedbackEl.innerHTML = `<span style="color: var(--success); font-weight:bold;">Excellent Decision!</span> Discarding the ${userCard.value}${suitSymbols[userCard.suit]} minimizes your dead-weight penalty points and protects your hand configuration. It had low sequence-building potential compared to your other cards.`;
+            } else {
+                feedbackEl.innerHTML = `<span style="color: var(--danger); font-weight:bold;">Suboptimal Discard.</span> While you chose the ${userCard.value}${suitSymbols[userCard.suit]}, the AI Strategy Advisor suggests dropping the <strong>${bestCard.value}${suitSymbols[bestCard.suit]}</strong>. Why? It carries a high point value penalty (${valueScores[bestCard.value]} points) and is isolated from making a pure sequence.`;
+            }
+
+            document.getElementById('stat-total').innerText = totalHands;
+            document.getElementById('stat-correct').innerText = correctAnswers;
+        }
+
+        function getAIAdvice() {
+            let metrics = evaluateHandStrategy();
+            let bestCard = currentHand[metrics[0].index];
+            
+            document.getElementById('feedback').innerHTML = `💡 <strong>AI Analysis:</strong> You should heavily consider discarding the <strong>${bestCard.value}${suitSymbols[bestCard.suit]}</strong>. Mathematically, this card holds high dead-weight point value with zero or poor structural connections to other cards in your hand.`;
+        }
+
+        // Initialize on page load
+        generateNewHand();
+    </script>
+</body>
+</html>
